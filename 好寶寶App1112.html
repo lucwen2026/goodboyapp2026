@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="乖寶寶"/>
+<title>好寶寶成長記</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;background:#fef9ee;overscroll-behavior:none;}
+  @keyframes wiggle{0%,100%{transform:rotate(0deg)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+  @keyframes fadeout{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
+  @keyframes popin{0%{transform:scale(.85);opacity:0}100%{transform:scale(1);opacity:1}}
+  button{font-family:inherit;-webkit-appearance:none;}
+  input,textarea{font-family:inherit;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect}=React;
+
+const TOY_OPTIONS=["寶可夢卡牌","寶可夢手機遊戲","平板電腦","Switch","手機"];
+const PENALTY_OPTIONS=[{label:"停止玩一次",value:"stop_once"},{label:"一個星期不能玩",value:"stop_week"}];
+const REWARD_TARGET=5;
+const MAX_CROSSES=3;
+const MSG_GOOD=["好棒棒！🎉","繼續加油！⭐","你是最棒的！🌟","太厲害了！👏","媽媽好開心！❤️"];
+const MSG_BAD=["下次要更乖喔！😤","要改進！加油！💪","媽媽有在看喔！👀","相信你下次會更好！"];
+
+const AVATAR_OPTIONS=["🧒","👩","👨","👴","👵","🐱","🐶","⭐"];
+const STORAGE_KEY="good-baby-v4";
+
+function rand(arr){return arr[Math.floor(Math.random()*arr.length)];}
+function load(){try{const r=localStorage.getItem(STORAGE_KEY);return r?JSON.parse(r):null;}catch{return null;}}
+function save(s){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(s));}catch{}}
+
+const DEFAULT={
+  circleCount:0,crossCount:0,
+  toy:"寶可夢卡牌",penalty:"stop_once",rewardText:"",
+  heroBg:null,bgPos:{x:50,y:50},
+  appTitle:"好寶寶成長記",bubbleText:"加油！你可以的！",
+  avatarEmoji:"🧒",avatarPhoto:null,
+  bubble:"加油！你可以的！",
+};
+
+/* ── 圓形標記 ── */
+function CircleMark({onRemove}){
+  const[h,setH]=useState(false);
+  return <div onClick={onRemove} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+    style={{width:62,height:62,borderRadius:"50%",border:"3.5px solid #dc2626",background:h?"#fee2e2":"#fff",
+      display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,
+      transform:h?"scale(.88)":"scale(1)",transition:"all .15s",boxShadow:"0 2px 10px rgba(0,0,0,.12)"}}>
+    <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+      <circle cx="17" cy="17" r="11" stroke="#dc2626" strokeWidth="3.5"/>
+    </svg>
+  </div>;
+}
+function CrossMark({onRemove}){
+  const[h,setH]=useState(false);
+  return <div onClick={onRemove} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+    style={{width:62,height:62,borderRadius:"50%",border:"3.5px solid #dc2626",background:h?"#fee2e2":"#fff",
+      display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,
+      transform:h?"scale(.88)":"scale(1)",transition:"all .15s",boxShadow:"0 2px 10px rgba(0,0,0,.12)"}}>
+    <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+      <line x1="9" y1="9" x2="25" y2="25" stroke="#dc2626" strokeWidth="3.5" strokeLinecap="round"/>
+      <line x1="25" y1="9" x2="9" y2="25" stroke="#dc2626" strokeWidth="3.5" strokeLinecap="round"/>
+    </svg>
+  </div>;
+}
+function Empty(){
+  return <div style={{width:62,height:62,borderRadius:"50%",border:"2.5px dashed #d1d5db",background:"rgba(255,255,255,.5)",flexShrink:0}}/>;
+}
+
+/* ── 設定 Modal ── */
+function SettingsModal({state,onSave,onClose}){
+  const[t,setT]=useState(state.toy);
+  const[p,setP]=useState(state.penalty);
+  const[reward,setReward]=useState(state.rewardText||"");
+  const[title,setTitle]=useState(state.appTitle);
+  const[bub,setBub]=useState(state.bubbleText);
+  const[avatar,setAvatar]=useState(state.avatarEmoji);
+  const[avatarImg,setAvatarImg]=useState(state.avatarPhoto);
+  const[custom,setCustom]=useState(!TOY_OPTIONS.includes(state.toy)?state.toy:"");
+  const[useCustom,setUseCustom]=useState(!TOY_OPTIONS.includes(state.toy));
+  const avRef=useRef(null);
+
+  const handleAv=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setAvatarImg(ev.target.result);r.readAsDataURL(f);};
+  const save=()=>{
+    onSave({toy:useCustom&&custom.trim()?custom.trim():t,penalty:p,rewardText:reward.trim(),
+      appTitle:title.trim()||"好寶寶成長記",bubbleText:bub.trim()||"加油！你可以的！",
+      avatarEmoji:avatar,avatarPhoto:avatarImg});
+    onClose();
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:24,padding:"24px 18px",width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,.3)",maxHeight:"92vh",overflowY:"auto"}}>
+        <h2 style={{margin:"0 0 16px",fontSize:20,fontWeight:900,textAlign:"center",color:"#1a1a1a"}}>⚙️ 設定</h2>
+
+        <p style={{margin:"0 0 5px",fontWeight:700,color:"#555",fontSize:13}}>📝 活動標題</p>
+        <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="好寶寶成長記 / 暑假挑戰…"
+          style={{width:"100%",padding:"9px 12px",borderRadius:12,border:"2px solid #fde68a",fontSize:14,marginBottom:14,outline:"none",boxSizing:"border-box",fontWeight:700}}/>
+
+        <p style={{margin:"0 0 5px",fontWeight:700,color:"#555",fontSize:13}}>💬 泡泡鼓勵文字</p>
+        <input value={bub} onChange={e=>setBub(e.target.value)} placeholder="加油！你可以的！"
+          style={{width:"100%",padding:"9px 12px",borderRadius:12,border:"2px solid #fde68a",fontSize:14,marginBottom:14,outline:"none",boxSizing:"border-box"}}/>
+
+        <p style={{margin:"0 0 7px",fontWeight:700,color:"#555",fontSize:13}}>🖼 小圓圈圖案</p>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
+          {AVATAR_OPTIONS.map(o=>(
+            <button key={o} onClick={()=>{setAvatar(o);setAvatarImg(null);}} style={{
+              width:50,height:50,borderRadius:"50%",fontSize:22,
+              border:`2.5px solid ${avatar===o&&!avatarImg?"#fbbf24":"#e5e7eb"}`,
+              background:avatar===o&&!avatarImg?"#fef9c3":"#f9fafb",
+              cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {o}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>avRef.current.click()} style={{
+          width:"100%",padding:"9px",borderRadius:12,marginBottom:16,
+          border:`2px dashed ${avatarImg?"#fbbf24":"#d1d5db"}`,
+          background:avatarImg?"#fef9c3":"#f9fafb",
+          fontWeight:700,fontSize:13,cursor:"pointer",color:avatarImg?"#78350f":"#888",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          {avatarImg
+            ?<><img src={avatarImg} alt="" style={{width:28,height:28,borderRadius:"50%",objectFit:"cover"}}/> 已上傳照片（點此更換）</>
+            :"📷 上傳爸爸 / 媽媽照片"}
+        </button>
+        <input ref={avRef} type="file" accept="image/*" onChange={handleAv} style={{display:"none"}}/>
+
+        <p style={{margin:"0 0 7px",fontWeight:700,color:"#555",fontSize:13}}>🚫 停止玩哪個玩具？</p>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          {TOY_OPTIONS.map(o=>(
+            <button key={o} onClick={()=>{setT(o);setUseCustom(false);}} style={{
+              padding:"6px 11px",borderRadius:20,
+              border:`2px solid ${t===o&&!useCustom?"#16a34a":"#e5e7eb"}`,
+              background:t===o&&!useCustom?"#dcfce7":"#f9fafb",
+              color:t===o&&!useCustom?"#16a34a":"#555",
+              fontWeight:700,cursor:"pointer",fontSize:13}}>{o}</button>
+          ))}
+          <button onClick={()=>setUseCustom(true)} style={{
+            padding:"6px 11px",borderRadius:20,
+            border:`2px solid ${useCustom?"#16a34a":"#e5e7eb"}`,
+            background:useCustom?"#dcfce7":"#f9fafb",
+            color:useCustom?"#16a34a":"#555",
+            fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ 自訂</button>
+        </div>
+        {useCustom&&<input autoFocus value={custom} onChange={e=>setCustom(e.target.value)} placeholder="輸入玩具名稱…"
+          style={{width:"100%",padding:"9px 12px",borderRadius:12,border:"2px solid #d1fae5",fontSize:14,marginBottom:12,outline:"none",boxSizing:"border-box"}}/>}
+
+        <p style={{margin:"0 0 7px",fontWeight:700,color:"#555",fontSize:13}}>⏱ 懲罰方式？</p>
+        <div style={{display:"flex",gap:10,marginBottom:18}}>
+          {PENALTY_OPTIONS.map(o=>(
+            <button key={o.value} onClick={()=>setP(o.value)} style={{
+              flex:1,padding:10,borderRadius:14,
+              border:`2px solid ${p===o.value?"#dc2626":"#e5e7eb"}`,
+              background:p===o.value?"#fee2e2":"#f9fafb",
+              color:p===o.value?"#dc2626":"#555",
+              fontWeight:700,cursor:"pointer",fontSize:13}}>{o.label}</button>
+          ))}
+        </div>
+
+        <p style={{margin:"0 0 4px",fontWeight:700,color:"#555",fontSize:13}}>🎁 集滿{REWARD_TARGET}圈圈的獎勵？</p>
+        <p style={{margin:"0 0 7px",fontSize:11,color:"#bbb"}}>媽媽每次可以填不一樣的獎勵</p>
+        <textarea value={reward} onChange={e=>setReward(e.target.value)}
+          placeholder="例：去吃一頓大餐、買一包寶可夢卡、看一部電影…" rows={3}
+          style={{width:"100%",padding:"10px 12px",borderRadius:12,border:"2px solid #d1fae5",fontSize:14,outline:"none",
+            boxSizing:"border-box",resize:"none",marginBottom:20,fontFamily:"inherit",lineHeight:1.6}}/>
+
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} style={{flex:1,padding:12,borderRadius:14,background:"#f3f4f6",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#666"}}>取消</button>
+          <button onClick={save}   style={{flex:2,padding:12,borderRadius:14,background:"#16a34a",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#fff"}}>✅ 儲存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 懲罰 Modal ── */
+function PenaltyModal({toy,penalty,onClose,onReset}){
+  const label=penalty==="stop_week"?"一個星期不能玩":"停止玩一次";
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:24,padding:"30px 22px",width:"100%",maxWidth:340,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.4)",animation:"popin .25s ease"}}>
+        <div style={{fontSize:58,marginBottom:10}}>🚨</div>
+        <h2 style={{margin:"0 0 10px",fontSize:22,fontWeight:900,color:"#dc2626"}}>集滿{MAX_CROSSES}個叉叉！</h2>
+        <p style={{margin:"0 0 22px",color:"#555",fontSize:15,lineHeight:1.7}}>懲罰開始：<br/><strong style={{color:"#dc2626",fontSize:17}}>{label}「{toy}」</strong></p>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} style={{flex:1,padding:12,borderRadius:14,background:"#f3f4f6",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#666"}}>知道了</button>
+          <button onClick={onReset} style={{flex:1,padding:12,borderRadius:14,background:"#dc2626",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#fff"}}>清除重來</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 獎勵 Modal ── */
+function RewardModal({rewardText,onClose,onReset}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:24,padding:"30px 22px",width:"100%",maxWidth:360,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,.4)",animation:"popin .25s ease"}}>
+        <div style={{fontSize:62,marginBottom:10}}>🎉</div>
+        <h2 style={{margin:"0 0 8px",fontSize:22,fontWeight:900,color:"#16a34a"}}>集滿{REWARD_TARGET}個圈圈！</h2>
+        <p style={{margin:"0 0 6px",color:"#555",fontSize:15}}>你好棒！獲得今日獎勵：</p>
+        {rewardText
+          ?<div style={{background:"#f0fdf4",border:"2px solid #86efac",borderRadius:16,padding:"14px 16px",margin:"10px 0 22px",fontSize:17,fontWeight:800,color:"#15803d",lineHeight:1.6}}>🎁 {rewardText}</div>
+          :<p style={{color:"#888",fontSize:14,marginBottom:22}}>（爸爸媽媽會告訴你獎勵是什麼！）</p>}
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} style={{flex:1,padding:12,borderRadius:14,background:"#f3f4f6",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#666"}}>耶！知道了</button>
+          <button onClick={onReset} style={{flex:1,padding:12,borderRadius:14,background:"#16a34a",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",color:"#fff"}}>清除重來</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════ 主程式 ══════════════ */
+function App(){
+  const saved=load();
+  const init=saved?{...DEFAULT,...saved}:DEFAULT;
+
+  const[circleCount,setCircleCount]=useState(init.circleCount);
+  const[crossCount,setCrossCount]=useState(init.crossCount);
+  const[toy,setToy]=useState(init.toy);
+  const[penalty,setPenalty]=useState(init.penalty);
+  const[rewardText,setRewardText]=useState(init.rewardText);
+  const[heroBg,setHeroBg]=useState(init.heroBg);
+  const[bgPos,setBgPos]=useState(init.bgPos);
+  const[appTitle,setAppTitle]=useState(init.appTitle);
+  const[bubbleText,setBubbleText]=useState(init.bubbleText);
+  const[avatarEmoji,setAvatarEmoji]=useState(init.avatarEmoji);
+  const[avatarPhoto,setAvatarPhoto]=useState(init.avatarPhoto);
+  const[bubble,setBubble]=useState(init.bubble);
+  const[isDragging,setIsDragging]=useState(false);
+  const[dragStart,setDragStart]=useState(null);
+  const[showSettings,setShowSettings]=useState(false);
+  const[showPenalty,setShowPenalty]=useState(false);
+  const[showReward,setShowReward]=useState(false);
+  const[savedFlash,setSavedFlash]=useState(false);
+  const bgRef=useRef(null);
+  const heroRef=useRef(null);
+
+  /* 自動儲存 */
+  useEffect(()=>{
+    save({circleCount,crossCount,toy,penalty,rewardText,heroBg,bgPos,appTitle,bubbleText,avatarEmoji,avatarPhoto,bubble});
+    setSavedFlash(true);
+    const t=setTimeout(()=>setSavedFlash(false),1400);
+    return()=>clearTimeout(t);
+  },[circleCount,crossCount,toy,penalty,rewardText,heroBg,bgPos,appTitle,bubbleText,avatarEmoji,avatarPhoto,bubble]);
+
+  /* 拖曳背景 */
+  const onPD=(e)=>{if(!heroBg)return;e.currentTarget.setPointerCapture(e.pointerId);setIsDragging(true);setDragStart({px:e.clientX,py:e.clientY,ox:bgPos.x,oy:bgPos.y});};
+  const onPM=(e)=>{if(!isDragging||!dragStart||!heroRef.current)return;const rect=heroRef.current.getBoundingClientRect();const dx=((e.clientX-dragStart.px)/rect.width)*-100;const dy=((e.clientY-dragStart.py)/rect.height)*-100;setBgPos({x:Math.max(0,Math.min(100,dragStart.ox+dx)),y:Math.max(0,Math.min(100,dragStart.oy+dy))});};
+  const onPU=()=>setIsDragging(false);
+
+  const handleBgUpload=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setHeroBg(ev.target.result);setBgPos({x:50,y:50});};r.readAsDataURL(f);};
+
+  const addCircle=()=>{
+    const next=circleCount+1;
+    setCircleCount(next);
+    setBubble(rand(MSG_GOOD));
+    if(next%REWARD_TARGET===0)setShowReward(true);
+  };
+  const addCross=()=>{
+    const next=crossCount+1;setCrossCount(next);setBubble(rand(MSG_BAD));
+    if(next>=MAX_CROSSES)setShowPenalty(true);
+  };
+  const removeOneCircle=()=>{if(circleCount>0)setCircleCount(n=>n-1);};
+  const removeOneCross=()=>{if(crossCount>0)setCrossCount(n=>n-1);};
+  const reset=()=>{setCircleCount(0);setCrossCount(0);setShowPenalty(false);setShowReward(false);setBubble(bubbleText);};
+
+  const handleSave=(s)=>{setToy(s.toy);setPenalty(s.penalty);setRewardText(s.rewardText);setAppTitle(s.appTitle);setBubbleText(s.bubbleText);setAvatarEmoji(s.avatarEmoji);setAvatarPhoto(s.avatarPhoto);setBubble(s.bubbleText);};
+
+  const penaltyLabel=penalty==="stop_week"?"一個星期不能玩":"停止玩一次";
+  const remaining=MAX_CROSSES-crossCount;
+  const cSlots=Math.max(circleCount,REWARD_TARGET);
+  const xSlots=Math.max(crossCount,MAX_CROSSES);
+  const cyclePos=circleCount%REWARD_TARGET;
+  const toNext=cyclePos===0?REWARD_TARGET:REWARD_TARGET-cyclePos;
+
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#fcd34d 0%,#fde68a 35%,#fef9ee 100%)"}}>
+
+      {/* 儲存提示 */}
+      {savedFlash&&<div style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",zIndex:999,
+        background:"rgba(22,163,74,.92)",color:"#fff",borderRadius:20,padding:"6px 18px",
+        fontSize:12,fontWeight:700,animation:"fadeout 1.4s forwards",pointerEvents:"none",whiteSpace:"nowrap"}}>
+        ✓ 已自動儲存
+      </div>}
+
+      {/* ══ HERO ══ */}
+      <div ref={heroRef} onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU}
+        style={{position:"relative",borderRadius:"0 0 34px 34px",overflow:"hidden",
+          cursor:heroBg?(isDragging?"grabbing":"grab"):"default",userSelect:"none"}}>
+        <div style={{position:"absolute",inset:0,
+          background:heroBg?`url(${heroBg}) ${bgPos.x}% ${bgPos.y}% / cover no-repeat`:"linear-gradient(180deg,#fbbf24 0%,#fcd34d 100%)"}}/>
+        {heroBg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.35)"}}/>}
+        {heroBg&&<div style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",zIndex:2,
+          background:"rgba(0,0,0,.4)",borderRadius:20,padding:"3px 12px",fontSize:11,color:"#fff",fontWeight:700,pointerEvents:"none"}}>
+          ✥ 拖曳可調整照片位置
+        </div>}
+        <button onPointerDown={e=>e.stopPropagation()} onClick={()=>bgRef.current.click()}
+          style={{position:"absolute",bottom:12,right:14,zIndex:2,background:"rgba(0,0,0,.48)",
+            border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,color:"#fff",fontWeight:700,cursor:"pointer"}}>
+          📷 {heroBg?"換照片":"上傳照片"}
+        </button>
+        <input ref={bgRef} type="file" accept="image/*" onChange={handleBgUpload} style={{display:"none"}}/>
+
+        <div style={{position:"relative",zIndex:1,padding:"18px 18px 32px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:26,display:"inline-block",animation:"wiggle 2.5s infinite"}}>⭐</span>
+              <span style={{fontSize:20,fontWeight:900,color:heroBg?"#fff":"#78350f",textShadow:heroBg?"0 1px 6px rgba(0,0,0,.6)":"none"}}>{appTitle}</span>
+            </div>
+            <button onPointerDown={e=>e.stopPropagation()} onClick={()=>setShowSettings(true)}
+              style={{width:46,height:46,borderRadius:13,background:"rgba(255,255,255,.92)",border:"none",
+                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                cursor:"pointer",gap:2,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>
+              <span style={{fontSize:18}}>⚙️</span>
+              <span style={{fontSize:10,fontWeight:800,color:"#555"}}>設定</span>
+            </button>
+          </div>
+          <p style={{margin:"2px 0 14px 34px",fontSize:13,fontWeight:600,color:heroBg?"rgba(255,255,255,.88)":"#92400e"}}>表現得好，就有圈圈喔！✨</p>
+          <div style={{display:"flex",alignItems:"center",gap:12}} onPointerDown={e=>e.stopPropagation()}>
+            <div style={{width:74,height:74,borderRadius:"50%",border:"3px solid rgba(255,255,255,.9)",
+              background:"#fde68a",flexShrink:0,boxShadow:"0 2px 12px rgba(0,0,0,.2)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:avatarPhoto?0:38,overflow:"hidden"}}>
+              {avatarPhoto?<img src={avatarPhoto} alt="av" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:avatarEmoji}
+            </div>
+            <div style={{background:"#fff",borderRadius:"18px 18px 18px 4px",padding:"12px 16px",
+              fontSize:15,fontWeight:700,color:"#374151",boxShadow:"0 2px 12px rgba(0,0,0,.12)",lineHeight:1.5}}>
+              {bubble}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ══ 圈圈 ══ */}
+      <div style={{margin:"16px 14px 0",background:"#fff",borderRadius:22,padding:"16px 14px",boxShadow:"0 2px 10px rgba(0,0,0,.07)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="7" stroke="#dc2626" strokeWidth="2.5"/></svg>
+            <span style={{fontWeight:800,fontSize:15}}>圈圈（表現棒棒）</span>
+          </div>
+          <span style={{fontSize:13,color:"#aaa",fontWeight:700}}>累計 {circleCount} 個</span>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:12}}>
+          {Array.from({length:cSlots}).map((_,i)=>i<circleCount?<CircleMark key={i} onRemove={removeOneCircle}/>:<Empty key={i}/>)}
+          <button onClick={addCircle} style={{height:62,padding:"0 20px",borderRadius:31,background:"#16a34a",color:"#fff",border:"none",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:"0 2px 8px rgba(22,163,74,.4)",flexShrink:0}}>＋ 圈圈</button>
+        </div>
+        <div style={{padding:"8px 12px",background:"#f0fdf4",borderRadius:12,fontSize:13,color:"#15803d",fontWeight:700}}>
+          🎁 再 {toNext} 個圈圈可獲得獎勵{rewardText?`：${rewardText}`:"（請在設定填寫獎勵）"}
+        </div>
+      </div>
+
+      {/* ══ 叉叉 ══ */}
+      <div style={{margin:"12px 14px 0",background:"#fff",borderRadius:22,padding:"16px 14px",boxShadow:"0 2px 10px rgba(0,0,0,.07)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><line x1="5" y1="5" x2="17" y2="17" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round"/><line x1="17" y1="5" x2="5" y2="17" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round"/></svg>
+            <span style={{fontWeight:800,fontSize:15}}>叉叉（需要改進）</span>
+          </div>
+          <span style={{fontSize:13,color:"#aaa",fontWeight:700}}>累計 {crossCount} 個</span>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:12}}>
+          {Array.from({length:xSlots}).map((_,i)=>i<crossCount?<CrossMark key={i} onRemove={removeOneCross}/>:<Empty key={i}/>)}
+          <button onClick={addCross} style={{height:62,padding:"0 20px",borderRadius:31,background:"#dc2626",color:"#fff",border:"none",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:"0 2px 8px rgba(220,38,38,.4)",flexShrink:0}}>＋ 叉叉</button>
+        </div>
+        <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",background:"#f9fafb",borderRadius:12,marginBottom:10}}>
+          <span style={{fontSize:16,marginTop:1}}>ℹ️</span>
+          <p style={{margin:0,fontSize:12,color:"#888",lineHeight:1.6}}>圈圈與叉叉分開累計，互不抵銷。<br/>點叉叉或圈圈圖示可手動刪除。</p>
+        </div>
+        {crossCount>0&&crossCount<MAX_CROSSES&&
+          <div style={{padding:"10px 14px",background:"#fff7ed",borderRadius:14,border:"1.5px solid #fed7aa"}}>
+            <span style={{fontSize:14,fontWeight:800,color:"#ea580c"}}>⚠️ 還差 {remaining} 個叉叉就要懲罰！</span>
+          </div>}
+        {crossCount>=MAX_CROSSES&&
+          <div style={{padding:"10px 14px",background:"#fee2e2",borderRadius:14,border:"1.5px solid #fca5a5"}}>
+            <span style={{fontSize:14,fontWeight:800,color:"#dc2626"}}>🚨 已集滿{MAX_CROSSES}個叉叉！懲罰觸發！</span>
+          </div>}
+      </div>
+
+      {/* ══ 懲罰規則 ══ */}
+      <div style={{margin:"12px 14px 0",background:"#fff",borderRadius:22,padding:"16px 14px",boxShadow:"0 2px 10px rgba(0,0,0,.07)"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
+          <span style={{fontSize:22}}>⚠️</span>
+          <p style={{margin:0,fontWeight:900,fontSize:14,color:"#1a1a1a",lineHeight:1.6}}>規則：加滿{MAX_CROSSES}個叉叉，<br/><span style={{color:"#dc2626"}}>必須停止玩指定玩具！</span></p>
+        </div>
+        <div style={{padding:"12px 14px",background:"#f9fafb",borderRadius:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <p style={{margin:"0 0 2px",fontSize:12,color:"#999"}}>本次停止玩具：</p>
+            <p style={{margin:"0 0 2px",fontWeight:900,fontSize:15,color:"#dc2626"}}>{toy}</p>
+            <p style={{margin:0,fontSize:12,color:"#aaa"}}>懲罰方式：{penaltyLabel}</p>
+          </div>
+          <button onClick={()=>setShowSettings(true)} style={{padding:"8px 16px",borderRadius:14,background:"#fbbf24",border:"none",fontWeight:800,fontSize:14,cursor:"pointer",color:"#78350f"}}>修改</button>
+        </div>
+      </div>
+
+      <div style={{margin:"12px 14px 0",padding:"10px 16px",background:"rgba(255,255,255,.6)",borderRadius:16,textAlign:"center"}}>
+        <p style={{margin:0,fontSize:12,color:"#888"}}>💡 圈圈與叉叉各自累計、互不抵銷；點圖示可手動刪除</p>
+      </div>
+      <div style={{margin:"12px 14px 28px"}}>
+        <button onClick={reset} style={{width:"100%",padding:14,borderRadius:18,background:"rgba(255,255,255,.8)",border:"1.5px solid #e5e7eb",fontWeight:700,fontSize:14,cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          🔄 清除所有紀錄，重新開始
+        </button>
+      </div>
+
+      {showSettings&&<SettingsModal state={{toy,penalty,rewardText,appTitle,bubbleText,avatarEmoji,avatarPhoto}} onSave={handleSave} onClose={()=>setShowSettings(false)}/>}
+      {showPenalty&&<PenaltyModal toy={toy} penalty={penalty} onClose={()=>setShowPenalty(false)} onReset={reset}/>}
+      {showReward&&<RewardModal rewardText={rewardText} onClose={()=>setShowReward(false)} onReset={reset}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
